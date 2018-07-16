@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "kafka/broker_pool"
 require "set"
 
@@ -53,6 +55,17 @@ module Kafka
       apis.find {|api| api.api_key == api_key }
     end
 
+    def supports_api?(api_key, version = nil)
+      info = api_info(api_key)
+      if info.nil?
+        return false
+      elsif version.nil?
+        return true
+      else
+        return info.version_supported?(version)
+      end
+    end
+
     def apis
       @apis ||=
         begin
@@ -103,9 +116,12 @@ module Kafka
       cluster_info.brokers.each do |broker_info|
         begin
           broker = connect_to_broker(broker_info.node_id)
-          response = broker.find_group_coordinator(group_id: group_id)
+          response = broker.find_coordinator(
+            coordinator_type: Kafka::Protocol::COORDINATOR_TYPE_GROUP,
+            coordinator_key: group_id
+          )
 
-          Protocol.handle_error(response.error_code)
+          Protocol.handle_error(response.error_code, response.error_message)
 
           coordinator_id = response.coordinator_id
 
@@ -124,7 +140,7 @@ module Kafka
           @logger.debug "Connected to coordinator: #{coordinator} for group `#{group_id}`"
 
           return coordinator
-        rescue GroupCoordinatorNotAvailable
+        rescue CoordinatorNotAvailable
           @logger.debug "Coordinator not available; retrying in 1s"
           sleep 1
           retry
@@ -145,12 +161,13 @@ module Kafka
       raise
     end
 
-    def create_topic(name, num_partitions:, replication_factor:, timeout:)
+    def create_topic(name, num_partitions:, replication_factor:, timeout:, config:)
       options = {
         topics: {
           name => {
             num_partitions: num_partitions,
             replication_factor: replication_factor,
+            config: config,
           }
         },
         timeout: timeout,
@@ -175,9 +192,97 @@ module Kafka
         sleep 1
 
         retry
+      rescue Kafka::UnknownTopicOrPartition
+        @logger.warn "Topic `#{name}` not yet created, waiting 1s..."
+        sleep 1
+
+        retry
       end
 
       @logger.info "Topic `#{name}` was created"
+    end
+
+    def delete_topic(name, timeout:)
+      options = {
+        topics: [name],
+        timeout: timeout,
+      }
+
+      broker = controller_broker
+
+      @logger.info "Deleting topic `#{name}` using controller broker #{broker}"
+
+      response = broker.delete_topics(**options)
+
+      response.errors.each do |topic, error_code|
+        Protocol.handle_error(error_code)
+      end
+
+      @logger.info "Topic `#{name}` was deleted"
+    end
+
+    def describe_topic(name, configs = [])
+      options = {
+        resources: [[Kafka::Protocol::RESOURCE_TYPE_TOPIC, name, configs]]
+      }
+      broker = controller_broker
+
+      @logger.info "Fetching topic `#{name}`'s configs using controller broker #{broker}"
+
+      response = broker.describe_configs(**options)
+
+      response.resources.each do |resource|
+        Protocol.handle_error(resource.error_code, resource.error_message)
+      end
+      topic_description = response.resources.first
+      topic_description.configs.each_with_object({}) do |config, hash|
+        hash[config.name] = config.value
+      end
+    end
+
+    def alter_topic(name, configs = {})
+      options = {
+        resources: [[Kafka::Protocol::RESOURCE_TYPE_TOPIC, name, configs]]
+      }
+
+      broker = controller_broker
+
+      @logger.info "Altering the config for topic `#{name}` using controller broker #{broker}"
+
+      response = broker.alter_configs(**options)
+
+      response.resources.each do |resource|
+        Protocol.handle_error(resource.error_code, resource.error_message)
+      end
+
+      nil
+    end
+
+    def describe_group(group_id)
+      response = get_group_coordinator(group_id: group_id).describe_groups(group_ids: [group_id])
+      group = response.groups.first
+      Protocol.handle_error(group.error_code)
+      group
+    end
+
+    def create_partitions_for(name, num_partitions:, timeout:)
+      options = {
+        topics: [[name, num_partitions, nil]],
+        timeout: timeout
+      }
+
+      broker = controller_broker
+
+      @logger.info "Creating #{num_partitions} partition(s) for topic `#{name}` using controller broker #{broker}"
+
+      response = broker.create_partitions(**options)
+
+      response.errors.each do |topic, error_code, error_message|
+        Protocol.handle_error(error_code, error_message)
+      end
+      mark_as_stale!
+
+      @logger.info "Topic `#{name}` was updated"
     end
 
     def resolve_offsets(topic, partitions, offset)
@@ -229,13 +334,26 @@ module Kafka
 
     def topics
       refresh_metadata_if_necessary!
-      cluster_info.topics.map(&:topic_name)
+      cluster_info.topics.select do |topic|
+        topic.topic_error_code == 0
+      end.map(&:topic_name)
     end
 
     # Lists all topics in the cluster.
     def list_topics
       response = random_broker.fetch_metadata(topics: nil)
-      response.topics.map(&:topic_name)
+      response.topics.select do |topic|
+        topic.topic_error_code == 0
+      end.map(&:topic_name)
+    end
+
+    def list_groups
+      refresh_metadata_if_necessary!
+      cluster_info.brokers.map do |broker|
+        response = connect_to_broker(broker.node_id).list_groups
+        Protocol.handle_error(response.error_code)
+        response.groups.map(&:group_id)
+      end.flatten.uniq
     end
 
     def disconnect

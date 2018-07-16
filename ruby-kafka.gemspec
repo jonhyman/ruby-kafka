@@ -1,4 +1,5 @@
 # coding: utf-8
+# frozen_string_literal: true
 
 lib = File.expand_path('../lib', __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
@@ -26,6 +27,8 @@ Gem::Specification.new do |spec|
   spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
+  spec.add_dependency 'digest-crc'
+
   spec.add_development_dependency "bundler", ">= 1.9.5"
   spec.add_development_dependency "rake", "~> 10.0"
   spec.add_development_dependency "rspec"
@@ -43,5 +46,6 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "ruby-prof"
   spec.add_development_dependency "timecop"
   spec.add_development_dependency "rubocop", "~> 0.49.1"
-  spec.add_development_dependency "gssapi", '>=1.2.0'
+  spec.add_development_dependency "gssapi", ">= 1.2.0"
+  spec.add_development_dependency "stackprof"
 end

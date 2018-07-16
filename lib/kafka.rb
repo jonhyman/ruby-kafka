@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "kafka/version"
 
 module Kafka
@@ -40,11 +42,15 @@ module Kafka
   class CorruptMessage < ProtocolError
   end
 
+  # When the record array length doesn't match real number of received records
+  class InsufficientDataMessage < Error
+  end
+
   class UnknownError < ProtocolError
   end
 
   class OffsetOutOfRange < ProtocolError
-    attr_accessor :topic, :partition
+    attr_accessor :topic, :partition, :offset
   end
 
   # The request is for a topic or partition that does not exist on the broker.
@@ -85,7 +91,7 @@ module Kafka
   class OffsetMetadataTooLarge < ProtocolError
   end
 
-  class GroupCoordinatorNotAvailable < ProtocolError
+  class CoordinatorNotAvailable < ProtocolError
   end
 
   class NotCoordinatorForGroup < ProtocolError
@@ -243,8 +249,14 @@ module Kafka
   #
   # @see Client#initialize
   # @return [Client]
-  def self.new(**options)
-    Client.new(**options)
+  def self.new(seed_brokers = nil, **options)
+    # We allow `seed_brokers` to be passed in either as a positional _or_ as a
+    # keyword argument.
+    if seed_brokers.nil?
+      Client.new(**options)
+    else
+      Client.new(seed_brokers: seed_brokers, **options)
+    end
   end
 end
 

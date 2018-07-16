@@ -2,7 +2,6 @@
 
 A Ruby client library for [Apache Kafka](http://kafka.apache.org/), a distributed log and message bus. The focus of this library will be operational simplicity, with good logging and metrics that can make debugging issues easier.
 
-Although parts of this library work with Kafka 0.8 – specifically, the Producer API – it's being tested and developed against Kafka 0.9. The Consumer API is Kafka 0.9+ only.
 
 ## Table of Contents
 
@@ -38,6 +37,7 @@ Although parts of this library work with Kafka 0.8 – specifically, the Produce
     9. [Security](#security)
         1. [Encryption and Authentication using SSL](#encryption-and-authentication-using-ssl)
         2. [Authentication using SASL](#authentication-using-sasl)
+    10. [Topic management](#topic-management)
 4. [Design](#design)
     1. [Producer Design](#producer-design)
     2. [Asynchronous Producer Design](#asynchronous-producer-design)
@@ -46,7 +46,7 @@ Although parts of this library work with Kafka 0.8 – specifically, the Produce
 6. [Support and Discussion](#support-and-discussion)
 7. [Roadmap](#roadmap)
 8. [Higher level libraries](#higher-level-libraries)
-    1. [Message processing frameworks](#message-processing-framework)
+    1. [Message processing frameworks](#message-processing-frameworks)
     2. [Message publishing libraries](#message-publishing-libraries)
 
 ## Installation
@@ -70,23 +70,32 @@ Or install it yourself as:
 <table>
   <tr>
     <th></th>
-    <th>Kafka 0.8</th>
-    <th>Kafka 0.9</th>
-    <th>Kafka 0.10</th>
-    <th>Kafka 0.11</th>
+    <th>Producer API</th>
+    <th>Consumer API</th>
   </tr>
   <tr>
-    <th>Producer API</th>
-    <td>Full support</td>
+    <th>Kafka 0.8</th>
     <td>Full support in v0.4.x</td>
+    <td>Unsupported</td>
+  </tr>
+  <tr>
+    <th>Kafka 0.9</th>
+    <td>Full support in v0.4.x</td>
+    <td>Full support in v0.4.x</td>
+  </tr>
+  <tr>
+    <th>Kafka 0.10</th>
     <td>Full support in v0.5.x</td>
+    <td>Full support in v0.5.x</td>
+  </tr>
+  <tr>
+    <th>Kafka 0.11</th>
+    <td>Limited support</td>
     <td>Limited support</td>
   </tr>
   <tr>
-    <th>Consumer API</th>
-    <td>Unsupported</td>
-    <td>Full support in v0.4.x</td>
-    <td>Full support in v0.5.x</td>
+    <th>Kafka 1.0</th>
+    <td>Limited support</td>
     <td>Limited support</td>
   </tr>
 </table>
@@ -97,6 +106,7 @@ This library is targeting Kafka 0.9 with the v0.4.x series and Kafka 0.10 with t
 - **Kafka 0.9:** Full support for the Producer and Consumer API in ruby-kafka v0.4.x.
 - **Kafka 0.10:** Full support for the Producer and Consumer API in ruby-kafka v0.5.x. Note that you _must_ run version 0.10.1 or higher of Kafka due to limitations in 0.10.0.
 - **Kafka 0.11:** Everything that works with Kafka 0.10 should still work, but so far no features specific to Kafka 0.11 have been added.
+- **Kafka 0.11:** Everything that works with Kafka 0.10 should still work, but so far no features specific to Kafka 1.0 have been added.
 
 This library requires Ruby 2.1 or higher.
 
@@ -111,13 +121,10 @@ A client must be initialized with at least one Kafka broker, from which the enti
 ```ruby
 require "kafka"
 
-kafka = Kafka.new(
-  # At least one of these nodes must be available:
-  seed_brokers: ["kafka1:9092", "kafka2:9092"],
-
-  # Set an optional client id in order to identify the client to Kafka:
-  client_id: "my-application",
-)
+# The first argument is a list of "seed brokers" that will be queried for the full
+# cluster topology. At least one of these *must* be available. `client_id` is
+# used to identify this client in logs and metrics. It's optional but recommended.
+kafka = Kafka.new(["kafka1:9092", "kafka2:9092"], client_id: "my-application")
 ```
 
 ### Producing Messages to Kafka
@@ -404,6 +411,7 @@ Compression is enabled by passing the `compression_codec` parameter to `#produce
 
 * `:snappy` for [Snappy](http://google.github.io/snappy/) compression.
 * `:gzip` for [gzip](https://en.wikipedia.org/wiki/Gzip) compression.
+* `:lz4` for [LZ4](https://en.wikipedia.org/wiki/LZ4_(compression_algorithm)) compression.
 
 By default, all message sets will be compressed if you specify a compression codec. To increase the compression threshold, set `compression_threshold` to an integer value higher than one.
 
@@ -426,10 +434,7 @@ require "kafka"
 
 # Configure the Kafka client with the broker hosts and the Rails
 # logger.
-$kafka = Kafka.new(
-  seed_brokers: ["kafka1:9092", "kafka2:9092"],
-  logger: Rails.logger,
-)
+$kafka = Kafka.new(["kafka1:9092", "kafka2:9092"], logger: Rails.logger)
 
 # Set up an asynchronous producer that delivers its buffered messages
 # every ten seconds:
@@ -469,7 +474,7 @@ Consuming messages from a Kafka topic with ruby-kafka is simple:
 ```ruby
 require "kafka"
 
-kafka = Kafka.new(seed_brokers: ["kafka1:9092", "kafka2:9092"])
+kafka = Kafka.new(["kafka1:9092", "kafka2:9092"])
 
 kafka.each_message(topic: "greetings") do |message|
   puts message.offset, message.key, message.value
@@ -492,7 +497,7 @@ Using the API is simple:
 ```ruby
 require "kafka"
 
-kafka = Kafka.new(seed_brokers: ["kafka1:9092", "kafka2:9092"])
+kafka = Kafka.new(["kafka1:9092", "kafka2:9092"])
 
 # Consumers with the same group id will form a Consumer Group together.
 consumer = kafka.consumer(group_id: "my-consumer")
@@ -880,13 +885,22 @@ By enabling SSL encryption you can have some confidence that messages can be sen
 In this case you just need to pass a valid CA certificate as a string when configuring your `Kafka` client:
 
 ```ruby
-kafka = Kafka.new(
-  ssl_ca_cert: File.read('my_ca_cert.pem'),
-  # ...
-)
+kafka = Kafka.new(["kafka1:9092"], ssl_ca_cert: File.read('my_ca_cert.pem'))
 ```
 
 Without passing the CA certificate to the client it would be impossible to protect against [man-in-the-middle attacks](https://en.wikipedia.org/wiki/Man-in-the-middle_attack).
+
+##### Using your system's CA cert store
+
+If you want to use the CA certs from your system's default certificate store, you
+can use:
+
+```ruby
+kafka = Kafka.new(["kafka1:9092"], ssl_ca_certs_from_system: true)
+```
+
+This configures the store to look up CA certificates from the system default certificate store on an as needed basis. The location of the store can usually be determined by: 
+`OpenSSL::X509::DEFAULT_CERT_FILE`
 
 ##### Client Authentication
 
@@ -894,6 +908,7 @@ In order to authenticate the client to the cluster, you need to pass in a certif
 
 ```ruby
 kafka = Kafka.new(
+  ["kafka1:9092"],
   ssl_ca_cert: File.read('my_ca_cert.pem'),
   ssl_client_cert: File.read('my_client_cert.pem'),
   ssl_client_cert_key: File.read('my_client_cert_key.pem'),
@@ -911,11 +926,14 @@ Typically, Kafka certificates come in the JKS format, which isn't supported by r
 
 Kafka has support for using SASL to authenticate clients. Currently GSSAPI, SCRAM and PLAIN mechanisms are supported by ruby-kafka.
 
+**NOTE:** With SASL for authentication, it is highly recommended to use SSL encryption. The default behavior of ruby-kafka enforces you to use SSL and you need to configure SSL encryption by passing `ssl_ca_cert` or enabling `ssl_ca_certs_from_system`. However, this strict SSL mode check can be disabled by setting  `sasl_over_ssl` to `false` while initializing the client.
+
 ##### GSSAPI
 In order to authenticate using GSSAPI, set your principal and optionally your keytab when initializing the Kafka client:
 
 ```ruby
 kafka = Kafka.new(
+  ["kafka1:9092"],
   sasl_gssapi_principal: 'kafka/kafka.example.com@EXAMPLE.COM',
   sasl_gssapi_keytab: '/etc/keytabs/kafka.keytab',
   # ...
@@ -927,26 +945,97 @@ In order to authenticate using PLAIN, you must set your username and password wh
 
 ```ruby
 kafka = Kafka.new(
-  ssl_ca_cert: File.read('/etc/openssl/cert.pem'), # Optional but highly recommended
+  ["kafka1:9092"],
+  ssl_ca_cert: File.read('/etc/openssl/cert.pem'),
   sasl_plain_username: 'username',
   sasl_plain_password: 'password'
   # ...
 )
 ```
 
-**NOTE**: It is __highly__ recommended that you use SSL for encryption when using SASL_PLAIN
-
 ##### SCRAM
 Since 0.11 kafka supports [SCRAM](https://kafka.apache.org/documentation.html#security_sasl_scram). 
 
 ```ruby
 kafka = Kafka.new(
+  ["kafka1:9092"],
   sasl_scram_username: 'username',
   sasl_scram_password: 'password',
   sasl_scram_mechanism: 'sha256',
   # ...
 )
 ```
+
+### Topic management
+
+In addition to producing and consuming messages, ruby-kafka supports managing Kafka topics and their configurations. See [the Kafka documentation](https://kafka.apache.org/documentation/#topicconfigs) for a full list of topic configuration keys.
+
+#### List all topics
+
+Return an array of topic names.
+
+```ruby
+kafka = Kafka.new(["kafka:9092"])
+kafka.topics
+# => ["topic1", "topic2", "topic3"]
+```
+
+#### Create a topic
+
+```ruby
+kafka = Kafka.new(["kafka:9092"])
+kafka.create_topic("topic")
+```
+
+By default, the new topic has 1 partition, replication factor 1 and default configs from the brokers. Those configurations are customizable:
+
+```ruby
+kafka = Kafka.new(["kafka:9092"])
+kafka.create_topic("topic",
+  num_partitions: 3,
+  replication_factor: 2,
+  config: {
+    "max.message.bytes" => 100000
+  }
+)
+```
+
+#### Create more partitions for a topic
+
+After a topic is created, you can increase the number of partitions for the topic. The new number of partitions must be greater than the current one.
+
+```ruby
+kafka = Kafka.new(["kafka:9092"])
+kafka.create_partitions_for("topic", num_partitions: 10)
+```
+
+#### Fetch configuration for a topic (alpha feature)
+
+```ruby
+kafka = Kafka.new(["kafka:9092"])
+kafka.describe_topic("topic", ["max.message.bytes", "retention.ms"])
+# => {"max.message.bytes"=>"100000", "retention.ms"=>"604800000"}
+```
+
+#### Alter a topic configuration (alpha feature)
+
+Update the topic configurations.
+
+**NOTE**: This feature is for advanced usage. Only use this if you know what you're doing.
+
+```ruby
+kafka = Kafka.new(["kafka:9092"])
+kafka.alter_topic("topic", "max.message.bytes" => 100000, "retention.ms" => 604800000)
+```
+
+#### Delete a topic
+
+```ruby
+kafka = Kafka.new(["kafka:9092"])
+kafka.delete_topic("topic")
+```
+
+After a topic is marked as deleted, Kafka only hides it from clients. It would take a while before a topic is completely deleted.
 
 ## Design
 

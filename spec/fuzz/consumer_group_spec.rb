@@ -1,22 +1,22 @@
+# frozen_string_literal: true
+
 describe "Consumer groups", fuzz: true do
   let(:logger) { LOGGER }
   let(:num_messages) { 10_000 }
   let(:num_partitions) { 30 }
   let(:num_consumers) { 10 }
-  let(:topic) { "fuzz-consumer-group" }
+  let(:group_id) { "fuzz-#{rand(1000)}" }
+  let(:topic) { create_random_topic(num_partitions: num_partitions) }
   let(:messages) { Set.new((1..num_messages).to_a) }
 
   before do
     logger.level = Logger::INFO
 
-    KAFKA_CLUSTER.create_topic(topic, num_partitions: num_partitions, num_replicas: 1)
-
-    kafka = Kafka.new(seed_brokers: kafka_brokers, logger: logger)
-    producer = kafka.producer(max_buffer_size: 5000)
+    kafka = Kafka.new(kafka_brokers, logger: logger)
+    producer = kafka.producer(max_buffer_size: num_messages)
 
     messages.each do |i|
       producer.produce(i.to_s, topic: topic, partition: i % num_partitions)
-      producer.deliver_messages if i % 3000 == 0
     end
 
     producer.deliver_messages
@@ -24,7 +24,7 @@ describe "Consumer groups", fuzz: true do
 
   example "consuming messages in a group with unreliable members" do
     result_queue = Queue.new
-    consumer_threads = num_consumers.times.map { start_consumer(result_queue) }
+    consumer_threads = num_consumers.times.map { start_consumer(group_id, result_queue) }
 
     nemesis = Thread.new do
       loop do
@@ -65,16 +65,16 @@ describe "Consumer groups", fuzz: true do
     puts "#{duplicate_messages.size} duplicate messages!"
   end
 
-  def start_consumer(result_queue)
+  def start_consumer(group_id, result_queue)
     thread = Thread.new do
       kafka = Kafka.new(
-        seed_brokers: kafka_brokers,
+        kafka_brokers,
         logger: logger,
         socket_timeout: 20,
         connect_timeout: 20,
       )
 
-      consumer = kafka.consumer(group_id: "fuzz", session_timeout: 30, offset_retention_time: 300)
+      consumer = kafka.consumer(group_id: group_id, session_timeout: 30, offset_retention_time: 300)
       consumer.subscribe(topic)
 
       consumer.each_message do |message|

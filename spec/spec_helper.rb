@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 $LOAD_PATH.unshift File.expand_path("../../lib", __FILE__)
 require "active_support/notifications"
 require "kafka"
@@ -6,6 +8,8 @@ require "logger"
 require "rspec-benchmark"
 require "colored"
 require "securerandom"
+require 'snappy'
+require 'extlz4'
 
 Dotenv.load
 
@@ -69,7 +73,7 @@ module FunctionalSpecHelpers
     base.class_eval do
       let(:logger) { LOGGER }
       let(:kafka_brokers) { KAFKA_BROKERS }
-      let(:kafka) { Kafka.new(seed_brokers: kafka_brokers, client_id: "test", logger: logger) }
+      let(:kafka) { Kafka.new(kafka_brokers, client_id: "test", logger: logger) }
 
       after { kafka.close rescue nil }
     end

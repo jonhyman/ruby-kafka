@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "set"
 require "kafka/round_robin_assignment_strategy"
 
@@ -27,6 +29,10 @@ module Kafka
 
     def subscribed_partitions
       @assigned_partitions.select { |topic, _| @topics.include?(topic) }
+    end
+
+    def assigned_to?(topic, partition)
+      subscribed_partitions.fetch(topic, []).include?(partition)
     end
 
     def member?
@@ -92,7 +98,7 @@ module Kafka
     end
 
     def heartbeat
-      @logger.info "Sending heartbeat..."
+      @logger.debug "Sending heartbeat..."
 
       response = coordinator.heartbeat(
         group_id: @group_id,
@@ -177,7 +183,7 @@ module Kafka
 
     def coordinator
       @coordinator ||= @cluster.get_group_coordinator(group_id: @group_id)
-    rescue GroupCoordinatorNotAvailable
+    rescue CoordinatorNotAvailable
       @logger.error "Group coordinator not available for group `#{@group_id}`"
 
       sleep 1

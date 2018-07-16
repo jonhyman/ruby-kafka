@@ -1,16 +1,88 @@
+# frozen_string_literal: true
+
 require "timecop"
 
 describe "Producer API", functional: true do
   let!(:topic) { create_random_topic(num_partitions: 3) }
+  let!(:deleted_topic) { create_random_topic(num_partitions: 3) }
 
-  example "listing all topics in the cluster" do
+  before do
+    kafka.delete_topic(deleted_topic)
+  end
+
+  example "listing available topics in the cluster" do
     # Use a clean Kafka instance to avoid hitting caches.
-    kafka = Kafka.new(seed_brokers: KAFKA_BROKERS, logger: LOGGER)
+    kafka = Kafka.new(KAFKA_BROKERS, logger: LOGGER)
 
     topics = kafka.topics
 
     expect(topics).to include topic
+    expect(topics).not_to include deleted_topic
     expect(kafka.has_topic?(topic)).to eq true
+    expect(kafka.has_topic?(deleted_topic)).to eq false
+  end
+
+  example "listing consumer groups working in the cluster" do
+    kafka = Kafka.new(KAFKA_BROKERS, logger: LOGGER)
+
+    group_id = "consumer-group-#{rand(1000)}"
+    kafka.deliver_message('test', topic: topic)
+    consumer = kafka.consumer(group_id: group_id)
+    consumer.subscribe(topic)
+    consumer.each_message do |msg|
+      consumer.stop
+    end
+
+    expect(kafka.groups).to include(group_id)
+  end
+
+  example "describing consumer group with active consumer" do
+    group_id = "consumer-group=#{rand(1000)}"
+
+    kafka.deliver_message('test', topic: topic)
+    consumer = kafka.consumer(group_id: group_id)
+    consumer.subscribe(topic)
+
+    result = nil
+    consumer.each_message do |msg|
+      result = kafka.describe_group(group_id)
+      consumer.stop
+    end
+
+    expect(result.state).to eq('Stable')
+    expect(result.protocol).to eq('standard')
+    expect(result.members.count).to eq(1)
+
+    member = result.members.first
+    expect(member.client_id).to_not be_nil
+    expect(member.client_host).to_not be_nil
+    expect(member.member_id).to_not be_nil
+    expect(member.member_assignment).to be_an_instance_of(Kafka::Protocol::MemberAssignment)
+    expect(member.member_assignment.topics[topic].sort).to eq([0, 1, 2])
+  end
+
+  example "describing non-existent consumer group" do
+    group_id = "consumer-group=#{rand(1000)}"
+    result = kafka.describe_group(group_id)
+    expect(result.state).to eq('Dead')
+    expect(result.protocol).to be_empty
+    expect(result.members).to be_empty
+  end
+
+  example "describing an inactive consumer group" do
+    group_id = "consumer-group=#{rand(1000)}"
+
+    kafka.deliver_message('test', topic: topic)
+    consumer = kafka.consumer(group_id: group_id)
+    consumer.subscribe(topic)
+    consumer.each_message do |msg|
+      consumer.stop
+    end
+
+    result = kafka.describe_group(group_id)
+    expect(result.state).to eq('Empty')
+    expect(result.protocol).to be_empty
+    expect(result.members).to be_empty
   end
 
   example "fetching the partition count for a topic" do
@@ -45,10 +117,22 @@ describe "Producer API", functional: true do
 
     expect {
       Timecop.freeze(now) do
-        kafka.deliver_message("yolo", topic: topic, key: "xoxo", partition: 0)
+        kafka.deliver_message("yolo", topic: topic, key: "xoxo", partition: 0, headers: { hello: 'World' })
       end
     }.to raise_exception(Kafka::DeliveryFailed) {|exception|
-      expect(exception.failed_messages).to eq [Kafka::PendingMessage.new("yolo", "xoxo", topic, 0, nil, now)]
+      expect(exception.failed_messages).to eq [
+        Kafka::PendingMessage.new(
+          value: "yolo",
+          key: "xoxo",
+          headers: {
+            hello: "World",
+          },
+          topic: topic,
+          partition: 0,
+          partition_key: nil,
+          create_time: now
+        )
+      ]
     }
   end
 
@@ -97,5 +181,25 @@ describe "Producer API", functional: true do
 
     expect(offsets[topic][0]).to eq 1
     expect(offsets[topic][1]).to eq 1
+  end
+
+  example 'support record headers' do
+    topic = create_random_topic(num_partitions: 1, num_replicas: 1)
+
+    kafka.deliver_message(
+      "hello", topic: topic,
+      headers: { hello: 'World', 'greeting' => 'is great', bye: 1, love: nil }
+    )
+
+    sleep 0.2
+    messages = kafka.fetch_messages(topic: topic, partition: 0, offset: 0)
+
+    expect(messages[0].value).to eq "hello"
+    expect(messages[0].headers).to eql(
+      'hello' => 'World',
+      'greeting' => 'is great',
+      'bye' => '1',
+      'love' => ''
+    )
   end
 end

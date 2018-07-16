@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Kafka
   module Protocol
 
@@ -11,6 +13,10 @@ module Kafka
 
         def api_name
           Protocol.api_name(api_key)
+        end
+
+        def version_supported?(version)
+          (min_version..max_version).include?(version)
         end
 
         def to_s

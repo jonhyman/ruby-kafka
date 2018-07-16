@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "logger"
 require "kafka/connection"
 require "kafka/protocol"
@@ -19,12 +21,17 @@ module Kafka
 
     # @return [String]
     def to_s
-      "#{connection} (node_id=#{@node_id.inspect})"
+      "#{@host}:#{@port} (node_id=#{@node_id.inspect})"
     end
 
     # @return [nil]
     def disconnect
-      connection.close
+      connection.close if connected?
+    end
+
+    # @return [Boolean]
+    def connected?
+      !@connection.nil?
     end
 
     # Fetches cluster metadata from the broker.
@@ -97,8 +104,8 @@ module Kafka
       send_request(request)
     end
 
-    def find_group_coordinator(**options)
-      request = Protocol::GroupCoordinatorRequest.new(**options)
+    def find_coordinator(**options)
+      request = Protocol::FindCoordinatorRequest.new(**options)
 
       send_request(request)
     end
@@ -115,8 +122,44 @@ module Kafka
       send_request(request)
     end
 
+    def delete_topics(**options)
+      request = Protocol::DeleteTopicsRequest.new(**options)
+
+      send_request(request)
+    end
+
+    def describe_configs(**options)
+      request = Protocol::DescribeConfigsRequest.new(**options)
+
+      send_request(request)
+    end
+
+    def alter_configs(**options)
+      request = Protocol::AlterConfigsRequest.new(**options)
+
+      send_request(request)
+    end
+
+    def create_partitions(**options)
+      request = Protocol::CreatePartitionsRequest.new(**options)
+
+      send_request(request)
+    end
+
+    def list_groups
+      request = Protocol::ListGroupsRequest.new
+
+      send_request(request)
+    end
+
     def api_versions
       request = Protocol::ApiVersionsRequest.new
+
+      send_request(request)
+    end
+
+    def describe_groups(**options)
+      request = Protocol::DescribeGroupsRequest.new(**options)
 
       send_request(request)
     end

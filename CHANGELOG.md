@@ -4,6 +4,62 @@ Changes and additions to the library will be listed here.
 
 ## Unreleased
 
+- Drop support for Kafka 0.10 in favor of native support for Kafka 0.11.
+- Support record headers (#604).
+- Add instrumenter and logger when async message delivery fails (#603).
+- Upgrade and rename GroupCoordinator API to FindCoordinator API (#606).
+- Refresh cluster metadata after topic re-assignment (#609).
+- Disable SASL over SSL with a new config (#613).
+
+## 0.6.7
+
+- Handle case where consumer doesn't know about the topic (#597 + 0e302cbd0f31315bf81c1d1645520413ad6b58f0)
+
+## v0.6.5
+
+- Fix bug related to partition assignment.
+
+## v0.6.4
+
+- Fix bug that caused consumers to jump back and reprocess messages (#595).
+
+## v0.6.3
+
+- Allow configuring the max size of the queue connecting the fetcher thread with the consumer.
+- Add support for the Describe Groups API (#583).
+
+## v0.6.2
+
+- Add list groups API (#582).
+- Use mutable String constructor (#584).
+
+## v0.6.1
+
+- Fix bug with exponential pausing causing pauses never to stop.
+
+## v0.6.0
+
+- Fetch messages asynchronously (#526).
+- Add support for exponential backoff in pauses (#566).
+- Instrument pause durations (#574).
+
+## v0.5.5
+
+- Support PLAINTEXT and SSL URI schemes (#550).
+
+## v0.5.4
+
+- Add support for config entries in the topic creation API (#540).
+- Don't fail on retry when the cluster is secured (#545).
+
+## v0.5.3
+
+- Add support for the topic deletion API (#528).
+- Add support for the partition creation API (#533).
+- Allow passing in the seed brokers in a positional argument (#538).
+
+## v0.5.2
+
 - Instrument the start of message/batch processing (#496).
 - Mark `Client#fetch_messages` as stable.
 - Fix the list topics API (#508).
@@ -11,6 +67,8 @@ Changes and additions to the library will be listed here.
 - Refactor compression codec lookup (#509).
 - Fix compressed message set offset bug (#506).
 - Test against multiple versions of Kafka.
+- Fix double-processing of messages after a consumer exception (#518).
+- Track consumer offsets in Datadog.
 
 ## v0.5.1
 

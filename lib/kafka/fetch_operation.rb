@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "kafka/fetched_batch"
 
 module Kafka
@@ -80,6 +82,7 @@ module Kafka
             rescue Kafka::OffsetOutOfRange => e
               e.topic = fetched_topic.name
               e.partition = fetched_partition.partition
+              e.offset = topics.fetch(e.topic).fetch(e.partition).fetch(:fetch_offset)
 
               raise e
             rescue Kafka::Error => e
@@ -91,12 +94,9 @@ module Kafka
 
             messages = fetched_partition.messages.map {|message|
               FetchedMessage.new(
-                value: message.value,
-                key: message.key,
+                message: message,
                 topic: fetched_topic.name,
                 partition: fetched_partition.partition,
-                offset: message.offset,
-                create_time: message.create_time,
               )
             }
 
