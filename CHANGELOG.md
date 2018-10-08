@@ -4,12 +4,33 @@ Changes and additions to the library will be listed here.
 
 ## Unreleased
 
+- Synchronize access to @worker_thread and @timer_thread in AsyncProducer to prevent creating multiple threads (#661).
+
+## 0.7.2
+
+- Handle case when paused partition does not belong to group on resume (#656).
+- Fix compatibility version in documentation (#651).
+- Fix message set backward compatible (#648).
+- Refresh metadata on connection error when listing topics (#644).
+
+## 0.7.1
+
+- Compatibility with dogstatsd-ruby v4.0.0.
+- Fix consuming duplication due to redundant messages returned from Kafka (#636).
+- Fresh cluster info on fetch error (#641).
+- Exactly Once Delivery and Transactional Messaging Support (#608).
+- Support extra client certificates in the SSL Context when authenticating with Kafka (#633).
+
+## 0.7.0
+
 - Drop support for Kafka 0.10 in favor of native support for Kafka 0.11.
 - Support record headers (#604).
 - Add instrumenter and logger when async message delivery fails (#603).
 - Upgrade and rename GroupCoordinator API to FindCoordinator API (#606).
 - Refresh cluster metadata after topic re-assignment (#609).
 - Disable SASL over SSL with a new config (#613).
+- Allow listing brokers in a cluster (#626).
+- Fix Fetcher's message skipping (#625).
 
 ## 0.6.7
 

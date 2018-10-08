@@ -46,6 +46,7 @@ describe Kafka::Consumer do
       Kafka::FetchedBatch.new(
         topic: "greetings",
         partition: 0,
+        last_offset: 13,
         highwater_mark_offset: 42,
         messages: messages,
       )
@@ -71,6 +72,7 @@ describe Kafka::Consumer do
         Kafka::FetchedBatch.new(
           topic: "greetings",
           partition: 1,
+          last_offset: 10,
           highwater_mark_offset: 42,
           messages: unassigned_messages,
         )
@@ -111,6 +113,7 @@ describe Kafka::Consumer do
         Kafka::FetchedBatch.new(
           topic: "greetings",
           partition: 1,
+          last_offset: 10,
           highwater_mark_offset: 42,
           messages: messages_after_partition_reassignment,
         )
@@ -142,6 +145,7 @@ describe Kafka::Consumer do
     allow(offset_manager).to receive(:next_offset_for) { 42 }
 
     allow(group).to receive(:subscribe)
+    allow(group).to receive(:group_id)
     allow(group).to receive(:leave)
     allow(group).to receive(:member?) { true }
     allow(group).to receive(:subscribed_partitions) { assigned_partitions }
@@ -177,6 +181,7 @@ describe Kafka::Consumer do
         Kafka::FetchedBatch.new(
           topic: "greetings",
           partition: 0,
+          last_offset: 13,
           highwater_mark_offset: 42,
           messages: messages,
         )
@@ -242,6 +247,8 @@ describe Kafka::Consumer do
     end
 
     it "does not fetch messages from paused partitions" do
+      allow(group).to receive(:assigned_to?).with('greetings', 42) { true }
+
       assigned_partitions["greetings"] << 42
 
       consumer.pause("greetings", 42)
@@ -259,6 +266,21 @@ describe Kafka::Consumer do
       end
 
       expect(fetcher).to have_received(:seek).with("greetings", 42, anything)
+    end
+
+    it "does not seek (previously) paused partition when not in group" do
+      allow(group).to receive(:assigned_to?).with('greetings', 42) { false }
+
+      assigned_partitions["greetings"] << 42
+
+      consumer.pause("greetings", 42)
+      consumer.resume("greetings", 42)
+
+      consumer.each_message do |message|
+        consumer.stop
+      end
+
+      expect(fetcher).to_not have_received(:seek).with("greetings", 42, anything)
     end
 
     it "automatically resumes partitions if a timeout is set" do
@@ -399,6 +421,7 @@ describe Kafka::Consumer do
         Kafka::FetchedBatch.new(
           topic: "greetings",
           partition: 0,
+          last_offset: 13,
           highwater_mark_offset: 42,
           messages: messages,
         )

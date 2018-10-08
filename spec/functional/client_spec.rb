@@ -2,15 +2,12 @@
 
 require "timecop"
 
-describe "Producer API", functional: true do
+describe "Client API", functional: true do
   let!(:topic) { create_random_topic(num_partitions: 3) }
   let!(:deleted_topic) { create_random_topic(num_partitions: 3) }
 
-  before do
-    kafka.delete_topic(deleted_topic)
-  end
-
   example "listing available topics in the cluster" do
+    kafka.delete_topic(deleted_topic)
     # Use a clean Kafka instance to avoid hitting caches.
     kafka = Kafka.new(KAFKA_BROKERS, logger: LOGGER)
 
@@ -22,10 +19,17 @@ describe "Producer API", functional: true do
     expect(kafka.has_topic?(deleted_topic)).to eq false
   end
 
+  example "listing brokers in the cluster" do
+    brokers = kafka.brokers
+    controller = kafka.controller_broker
+
+    expect(brokers).to include controller
+  end
+
   example "listing consumer groups working in the cluster" do
     kafka = Kafka.new(KAFKA_BROKERS, logger: LOGGER)
 
-    group_id = "consumer-group-#{rand(1000)}"
+    group_id = "consumer-group-#{SecureRandom.uuid}"
     kafka.deliver_message('test', topic: topic)
     consumer = kafka.consumer(group_id: group_id)
     consumer.subscribe(topic)
@@ -37,7 +41,7 @@ describe "Producer API", functional: true do
   end
 
   example "describing consumer group with active consumer" do
-    group_id = "consumer-group=#{rand(1000)}"
+    group_id = "consumer-group=#{SecureRandom.uuid}"
 
     kafka.deliver_message('test', topic: topic)
     consumer = kafka.consumer(group_id: group_id)
@@ -62,7 +66,7 @@ describe "Producer API", functional: true do
   end
 
   example "describing non-existent consumer group" do
-    group_id = "consumer-group=#{rand(1000)}"
+    group_id = "consumer-group=#{SecureRandom.uuid}"
     result = kafka.describe_group(group_id)
     expect(result.state).to eq('Dead')
     expect(result.protocol).to be_empty
@@ -70,7 +74,7 @@ describe "Producer API", functional: true do
   end
 
   example "describing an inactive consumer group" do
-    group_id = "consumer-group=#{rand(1000)}"
+    group_id = "consumer-group=#{SecureRandom.uuid}"
 
     kafka.deliver_message('test', topic: topic)
     consumer = kafka.consumer(group_id: group_id)
@@ -90,7 +94,7 @@ describe "Producer API", functional: true do
   end
 
   example "fetching the partition count for a topic that doesn't yet exist" do
-    topic = "unknown-topic-#{rand(1000)}"
+    topic = "unknown-topic-#{SecureRandom.uuid}"
 
     expect { kafka.partitions_for(topic) }.to raise_exception(Kafka::LeaderNotAvailable)
 
@@ -112,7 +116,7 @@ describe "Producer API", functional: true do
   end
 
   example "delivering a message to a topic that doesn't yet exist" do
-    topic = "unknown-topic-#{rand(1000)}"
+    topic = "unknown-topic-#{SecureRandom.uuid}"
     now = Time.now
 
     expect {

@@ -6,11 +6,12 @@ module Kafka
   class Fetcher
     attr_reader :queue
 
-    def initialize(cluster:, logger:, instrumenter:, max_queue_size:)
+    def initialize(cluster:, logger:, instrumenter:, max_queue_size:, group:)
       @cluster = cluster
       @logger = logger
       @instrumenter = instrumenter
       @max_queue_size = max_queue_size
+      @group = group
 
       @queue = Queue.new
       @commands = Queue.new
@@ -27,12 +28,6 @@ module Kafka
 
       # The maximum number of bytes to fetch per partition, by topic.
       @max_bytes_per_partition = {}
-
-      @thread = Thread.new do
-        loop while true
-      end
-
-      @thread.abort_on_exception = true
     end
 
     def subscribe(topic, max_bytes_per_partition:)
@@ -48,16 +43,21 @@ module Kafka
     end
 
     def start
-      @commands << [:start, []]
-    end
+      return if @running
 
-    def handle_start
-      raise "already started" if @running
+      @thread = Thread.new do
+        while @running
+          loop
+        end
+        @logger.info "Fetcher thread exited."
+      end
+      @thread.abort_on_exception = true
 
       @running = true
     end
 
     def stop
+      return unless @running
       @commands << [:stop, []]
     end
 
@@ -80,14 +80,14 @@ module Kafka
         queue_size: @queue.size,
       })
 
+      return unless @running
+
       if !@commands.empty?
         cmd, args = @commands.deq
 
         @logger.debug "Handling fetcher command: #{cmd}"
 
         send("handle_#{cmd}", *args)
-      elsif !@running
-        sleep 0.1
       elsif @queue.size < @max_queue_size
         step
       else
@@ -109,6 +109,7 @@ module Kafka
 
     def handle_stop(*)
       @running = false
+      @commands.clear
 
       # After stopping, we need to reconfigure the topics and partitions to fetch
       # from. Otherwise we'd keep fetching from a bunch of partitions we may no
@@ -122,6 +123,11 @@ module Kafka
     end
 
     def handle_seek(topic, partition, offset)
+      @instrumenter.instrument('seek.consumer',
+                               group_id: @group.group_id,
+                               topic: topic,
+                               partition: partition,
+                               offset: offset)
       @logger.info "Seeking #{topic}/#{partition} to offset #{offset}"
       @next_offsets[topic][partition] = offset
     end
@@ -140,7 +146,7 @@ module Kafka
           })
         end
 
-        @next_offsets[batch.topic][batch.partition] = batch.last_offset + 1
+        @next_offsets[batch.topic][batch.partition] = batch.last_offset + 1 unless batch.unknown_last_offset?
       end
 
       @queue << [:batches, batches]
@@ -172,6 +178,16 @@ module Kafka
       end
 
       operation.execute
+    rescue UnknownTopicOrPartition
+      @logger.error "Failed to fetch from some partitions. Maybe a rebalance has happened? Refreshing cluster info."
+
+      # Our cluster information has become stale, we need to refresh it.
+      @cluster.refresh_metadata!
+
+      # Don't overwhelm the brokers in case this keeps happening.
+      sleep 10
+
+      retry
     rescue NoPartitionsToFetchFrom
       backoff = @max_wait_time > 0 ? @max_wait_time : 1
 
