@@ -49,6 +49,8 @@ module Kafka
     def start
       return if @running
 
+      @running = true
+
       @thread = Thread.new do
         while @running
           loop
@@ -56,13 +58,12 @@ module Kafka
         @logger.info "Fetcher thread exited."
       end
       @thread.abort_on_exception = true
-
-      @running = true
     end
 
     def stop
       return unless @running
       @commands << [:stop, []]
+      @thread.join
     end
 
     def reset

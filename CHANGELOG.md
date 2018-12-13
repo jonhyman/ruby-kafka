@@ -3,6 +3,19 @@
 Changes and additions to the library will be listed here.
 
 ## Unreleased
+- Distribute partitions across consumer groups when there are few partitions per topic (#681)
+- Fix an issue where a consumer would fail to fetch any messages (#689)
+- Instrumentation for heartbeat event
+- Synchronously stop the fetcher to prevent race condition when processing commands
+- Instrument batch fetching (#694)
+
+## 0.7.4
+- Fix wrong encoding calculation that leads to message corruption (#682, #680).
+- Change the log level of the 'Committing offsets' message to debug (#640).
+- Avoid Ruby warnings about unused vars (#679).
+- Synchronously commit offsets after HeartbeatError (#676).
+- Discard messages that were fetched under a previous consumer group generation (#665).
+- Support specifying an ssl client certificates key passphrase (#667).
 
 ## 0.7.3
 
